@@ -4,6 +4,14 @@ import uos
 import logging
 import gc
 import _thread
+import time
+
+# CircuitPython 
+import board
+import busio
+
+# Sensors
+import adafruit_bme680
 
 """
 sensors with IDs:
@@ -59,11 +67,23 @@ class Sensor:
     def __init__(self) -> None:
         pass
     
-    def setup(self):
-        pass
-    
     def get_data(self) -> list[SensorData]:
         return []
+    
+class BME680(Sensor):
+    def __init__(self) -> None:
+        self.i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
+        self.bme680 = adafruit_bme680.Adafruit_BME680_I2C(self.i2c)
+    
+    def get_data(self) -> list[SensorData]:
+        return [
+            SensorData(0, 0, str(self.bme680.temperature)),
+            SensorData(1, 0, str(self.bme680.pressure)),
+            SensorData(2, 0, str(self.bme680.relative_humidity)),
+            SensorData(3, 0, str(self.bme680.gas))
+        ]
+        
+
 
 class IOThread:
     def __init__(self, lock) -> None:
@@ -75,7 +95,7 @@ class IOThread:
     def start(self):
         _thread.start_new_thread(self.run, ())
 
-class Pico:
+class Pico(Sensor):
     def __init__(self) -> None:
         pass
     
@@ -90,6 +110,22 @@ class Pico:
         u = (3.3/65536) * adc
         return round(27 - (u - 0.706)/0.001721, 1)
 
+    def get_data(self) -> list[SensorData]:
+        ram_free, ram_allocated = self.ram_stats()
+        sysname, nodename, release, version, machine = self.device_info()
+        t = time.ticks_ms()
+        return [
+            SensorData(4, t, str(ram_free)),
+            SensorData(5, t, str(ram_allocated)),
+            SensorData(6, t, str(self.cpu_temperature())),
+            SensorData(7, t, sysname),
+            SensorData(8, t, nodename),
+            SensorData(9, t, release),
+            SensorData(10, t, version),
+            SensorData(11, t, machine)
+        ]
+        
+        
 class SDCard:
     def __init__(self, name:str, spi: SPI, cs: Pin):
         self.name = name
@@ -145,16 +181,29 @@ class CanSat:
     def __init__(self) -> None:
         self.pico = Pico()
         self.sdcard_array = SdCardArray()
+        self.sensors = []
 
     def setup(self):
         # Setup SD cards
         self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT)))
         self.sdcard_array.mount_all()
         
+        # Setup LoRa
+        
+        # Setup sensors
+        self.sensors.append(BME680())
+        
         self.thread_lock = _thread.allocate_lock()
         self.io_thread = IOThread(self.thread_lock)
+        self.io_thread.start()
         
         
         
     def run(self):
         self.setup()
+        logger.info("CanSat started")
+        
+if __name__ == "__main__":
+    cansat = CanSat()
+    cansat.run()
+    
