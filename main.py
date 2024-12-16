@@ -3,8 +3,11 @@ import sdcard
 import uos
 import logging
 import gc
+from threading import Thread
 import _thread
 import time
+import json
+import random
 
 # CircuitPython 
 import board
@@ -52,7 +55,11 @@ sensors with IDs:
 
 """
 
+DEFAULT_CONF = {"runs":0}
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CanSat")
+
+SENSOR_DATA = []
 
 class SensorData:
     def __init__(self, sensor_id:int, time:int, value:str) -> None:
@@ -83,17 +90,6 @@ class BME680(Sensor):
             SensorData(3, 0, str(self.bme680.gas))
         ]
         
-
-
-class IOThread:
-    def __init__(self, lock) -> None:
-        self.lock = lock
-    
-    def run(self):
-        pass
-    
-    def start(self):
-        _thread.start_new_thread(self.run, ())
 
 class Pico(Sensor):
     def __init__(self) -> None:
@@ -129,6 +125,7 @@ class Pico(Sensor):
 class SDCard:
     def __init__(self, name:str, spi: SPI, cs: Pin):
         self.name = name
+        self.mount_name = self.name[1:] # for a reason I do not understand, when mounting the first character is removed
         self.spi = spi
         self.cs = cs
         self.mounted = False
@@ -151,7 +148,7 @@ class SDCard:
     
     def write(self, filename:str, text:str) -> bool:
         if self.mounted:
-            joined_name = f"/{self.name}/{filename}"
+            joined_name = f"/{self.mount_name}/{filename}"
             
             try:
                 with open(joined_name, "a") as f:
@@ -176,25 +173,83 @@ class SdCardArray:
         for card in self.cards:
             card.write(filename, text)
         return True
+
+
+class IOThread(Thread):
+    def __init__(self, lock, conf: dict, cards: SdCardArray, sensor_data: list[SensorData]) -> None:
+        super(IOThread, self).__init__()
+        self.lock = lock
+        self.local_sensor_data = []
+        self.sensor_data = sensor_data
+        self.conf = conf
+        self.cards: SdCardArray = cards
+    
+    def run(self):
+        i = 0
+        r = self.conf["runs"]
+        while True:
+            t = time.ticks_ms()
+            with self.lock:
+                self.local_sensor_data = self.sensor_data.copy()
+                self.sensor_data.clear()
+            
+            if len(self.local_sensor_data) != 0:
+                fcsv = "\n".join([x.csv() for x in self.local_sensor_data]) + "\n"
+                self.cards.write_all(f"data-{r}.csv", fcsv)
+            
+            i += len(self.local_sensor_data)
+            dt = (time.ticks_ms() - t)
+            if dt !=0:
+                print(f"Writing {len(self.local_sensor_data)} took {time.ticks_ms() - t} ms, total: {i}, speed: {len(self.local_sensor_data)/dt*100}")
+            
+            time.sleep(0.5)
+            
     
 class CanSat:
     def __init__(self) -> None:
         self.pico = Pico()
         self.sdcard_array = SdCardArray()
         self.sensors = []
+        self.sensor_data = []
+        self.onboard_led = Pin(25, Pin.OUT)
+        self.onboard_led.off()
 
     def setup(self):
         # Setup SD cards
-        self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT)))
+        self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT)))
         self.sdcard_array.mount_all()
+        # conf file
+        conf_exists = "conf.json" in uos.listdir("/d1")
+        if conf_exists:
+            t = time.ticks_ms()
+            with open("/d1/conf.json", "r") as f:
+                self.conf = json.load(f)
+            self.conf["runs"] += 1
+            with open("/d1/conf.json", "w") as f:
+                json.dump(self.conf, f)
+            logger.info(f"Loading config took {time.ticks_ms() - t} ms")
+            logger.info(f"Configuration file exists, runs: {self.conf},")
+        else:
+            with open("/d1/conf.json", "w") as f:
+                self.conf = DEFAULT_CONF
+                json.dump(self.conf, f)
+            logger.info("Created default configuration")
         
         # Setup LoRa
         
         # Setup sensors
-        self.sensors.append(BME680())
+        try:
+            bme680 = BME680()
+            self.sensors.append(bme680)
+            del bme680
+        except Exception as e:
+            logger.error(f"Error initializing BME680: {e}")
+                
+        self.sensors.append(self.pico)
         
+        # Threading
         self.thread_lock = _thread.allocate_lock()
-        self.io_thread = IOThread(self.thread_lock)
+        self.io_thread = IOThread(self.thread_lock, self.conf, self.sdcard_array, self.sensor_data)
         self.io_thread.start()
         
         
@@ -203,7 +258,17 @@ class CanSat:
         self.setup()
         logger.info("CanSat started")
         
-if __name__ == "__main__":
-    cansat = CanSat()
-    cansat.run()
+        for i in range(1000):
+            with self.thread_lock:
+                self.sensor_data.extend([SensorData(0, time.ticks_ms(), str(self.pico.ram_stats()[0]))])
+                    
+            time.sleep(random.random()/100)
+        
+        
+        time.sleep(1)
+        self.onboard_led.on()
+        time.sleep(4)
+        
+cansat = CanSat()
+cansat.run()
     
