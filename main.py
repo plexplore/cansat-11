@@ -217,6 +217,7 @@ class CanSat:
     def setup(self):
         # Setup SD cards
         self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT)))
+        self.sdcard_array.cards.append(SDCard("sd2", SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT)))
         self.sdcard_array.mount_all()
         # conf file
         conf_exists = "conf.json" in uos.listdir("/d1")
