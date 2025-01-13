@@ -29,7 +29,7 @@ Implementation Notes
 
 import math
 import struct
-import time
+import adafruit_blinka.agnostic.time as time
 
 from micropython import const
 

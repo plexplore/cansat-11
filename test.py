@@ -1,9 +1,17 @@
 from ulora import LoRa, ModemConfig
 from machine import SPI, Pin
 from time import sleep, time, ticks_ms
+import board
+import busio
 
+import adafruit_bme680
 
-RFM95_RST = 27
+i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
+bme680 = adafruit_bme680.Adafruit_BME680_I2C(i2c)
+
+print("Temperature: %0.1f C" % bme680.temperature)
+
+"""RFM95_RST = 27
 RFM95_SPIBUS = (0, 2, 3, 0)
 RFM95_CS = 1
 RFM95_INT = 28
@@ -26,7 +34,7 @@ lora.send_to_wait("Hello World!", SERVER_ADDRESS)
 print("Time to send: ", ticks_ms() - t)
 print("Sent Hello World!")
 
-sleep(1)
+sleep(1)"""
 
 
 """from machine import SPI, Pin

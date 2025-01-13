@@ -13,6 +13,7 @@ import random
 import board
 import busio
 
+from ulora import LoRa, ModemConfig
 # Sensors
 import adafruit_bme680
 
@@ -59,6 +60,15 @@ DEFAULT_CONF = {"runs":0}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CanSat")
 
+RFM95_RST = 27
+RFM95_SPIBUS = (0, 2, 3, 0)
+RFM95_CS = 1
+RFM95_INT = 28
+RF95_FREQ = 868.0
+RF95_POW = 20
+CLIENT_ADDRESS = 1
+SERVER_ADDRESS = 2
+
 SENSOR_DATA = []
 
 class SensorData:
@@ -68,7 +78,7 @@ class SensorData:
         self.value = value
         
     def csv(self):
-        return f"{self.id},{self.time},{self.value}"
+        return f"{self.id},{self.time},{self.value};"
     
 class Sensor:
     def __init__(self) -> None:
@@ -83,13 +93,26 @@ class BME680(Sensor):
         self.bme680 = adafruit_bme680.Adafruit_BME680_I2C(self.i2c)
     
     def get_data(self) -> list[SensorData]:
+        t = time.ticks_ms()
         return [
-            SensorData(0, 0, str(self.bme680.temperature)),
-            SensorData(1, 0, str(self.bme680.pressure)),
-            SensorData(2, 0, str(self.bme680.relative_humidity)),
-            SensorData(3, 0, str(self.bme680.gas))
+            SensorData(0, t, str(self.bme680.temperature)),
+            SensorData(1, t, str(self.bme680.pressure)),
+            SensorData(2, t, str(self.bme680.relative_humidity)),
+            SensorData(3, t, str(self.bme680.gas))
         ]
-        
+
+class CanSatLoRa:
+    def __init__(self) -> None:
+        self.lora = LoRa(
+            RFM95_SPIBUS,
+            RFM95_INT,
+            CLIENT_ADDRESS,
+            RFM95_CS,
+            reset_pin=RFM95_RST
+        )
+    
+    def send(self, data:str):
+        self.lora.send_to_wait(data, SERVER_ADDRESS)
 
 class Pico(Sensor):
     def __init__(self) -> None:
@@ -176,10 +199,11 @@ class SdCardArray:
 
 
 class IOThread(Thread):
-    def __init__(self, lock, conf: dict, cards: SdCardArray, sensor_data: list[SensorData]) -> None:
+    def __init__(self, lock, conf: dict, cards: SdCardArray, lora: CanSatLoRa, sensor_data: list[SensorData]) -> None:
         super(IOThread, self).__init__()
         self.lock = lock
         self.local_sensor_data = []
+        self.lora = lora
         self.sensor_data = sensor_data
         self.conf = conf
         self.cards: SdCardArray = cards
@@ -195,14 +219,17 @@ class IOThread(Thread):
             
             if len(self.local_sensor_data) != 0:
                 fcsv = "\n".join([x.csv() for x in self.local_sensor_data]) + "\n"
-                self.cards.write_all(f"data-{r}.csv", fcsv)
+                self.cards.write_all(f"data-{r}.csv", fcsv) # Write to cards
+                self.lora.send(fcsv) # Send to base station
             
             i += len(self.local_sensor_data)
             dt = (time.ticks_ms() - t)
             if dt !=0:
                 print(f"Writing {len(self.local_sensor_data)} took {time.ticks_ms() - t} ms, total: {i}, speed: {len(self.local_sensor_data)/dt*100}")
             
-            time.sleep(0.5)
+            
+            
+            time.sleep(0.1)
             
     
 class CanSat:
@@ -216,9 +243,15 @@ class CanSat:
 
     def setup(self):
         # Setup SD cards
-        self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT)))
-        self.sdcard_array.cards.append(SDCard("sd2", SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT)))
+        #self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT)))
+        self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT)))
         self.sdcard_array.mount_all()
+        
+        try:
+            self.lora = CanSatLoRa()
+        except Exception as e:
+            logger.error(f"Error initializing LoRa: {e}")
+        
         # conf file
         conf_exists = "conf.json" in uos.listdir("/d1")
         if conf_exists:
@@ -246,11 +279,13 @@ class CanSat:
         except Exception as e:
             logger.error(f"Error initializing BME680: {e}")
                 
-        self.sensors.append(self.pico)
+        #self.sensors.append(self.pico)
+        
+        logger.info(self.sensors)
         
         # Threading
         self.thread_lock = _thread.allocate_lock()
-        self.io_thread = IOThread(self.thread_lock, self.conf, self.sdcard_array, self.sensor_data)
+        self.io_thread = IOThread(self.thread_lock, self.conf, self.sdcard_array, self.lora, self.sensor_data)
         self.io_thread.start()
         
         
@@ -259,11 +294,34 @@ class CanSat:
         self.setup()
         logger.info("CanSat started")
         
-        for i in range(1000):
+        run_intervall = 1
+        
+        while True:
+            t = time.ticks_ms()
+            cd = []
+            for s in self.sensors:
+                try:
+                    cd.extend(s.get_data())
+                except Exception as e:
+                    logger.error(f"Error getting data from {s}: {e}")
+            
             with self.thread_lock:
-                self.sensor_data.extend([SensorData(0, time.ticks_ms(), str(self.pico.ram_stats()[0]))])
-                    
-            time.sleep(random.random()/100)
+                self.sensor_data.extend(cd)
+            cd.clear()
+            
+            logger.info(f"Getting data took {time.ticks_ms() - t} ms")
+            
+            dt = time.ticks_ms() - t
+            
+            if dt<run_intervall*1000:
+                time.sleep_ms((run_intervall*1000) - dt)
+            else:
+                logger.info("Behind time, skipping sleep")
+        #for i in range(1000):
+        #    with self.thread_lock:
+        #        self.sensor_data.extend([SensorData(0, time.ticks_ms(), str(self.pico.ram_stats()[0]))])
+        #            
+        #    time.sleep(random.random()/100)
         
         
         time.sleep(1)
