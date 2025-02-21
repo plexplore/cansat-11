@@ -7,7 +7,6 @@ from threading import Thread
 import _thread
 import time
 import json
-import random
 
 # CircuitPython 
 import board
@@ -16,6 +15,9 @@ import busio
 from ulora import LoRa, ModemConfig
 # Sensors
 import adafruit_bme680
+import adafruit_ccs811
+# fan
+from digitalio import DigitalInOut, Direction
 
 """
 sensors with IDs:
@@ -100,6 +102,31 @@ class BME680(Sensor):
             SensorData(2, t, str(self.bme680.relative_humidity)),
             SensorData(3, t, str(self.bme680.gas))
         ]
+
+class CCS811(Sensor):
+    def __init__(self) -> None:
+        self.i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
+        self.ccs811 = adafruit_ccs811.CCS811(self.i2c)
+        
+    def get_data(self) -> list[SensorData]:
+        t = time.ticks_ms()
+        return [
+            
+        ]
+        
+class Mosfet:
+    def __init__(self) -> None:
+        self.pin = DigitalInOut(board.GP18)
+        self.pin.direction = Direction.OUTPUT
+        self.is_on = False
+        
+    def turn_on(self):
+        self.pin.value = True
+        self.is_on = True
+        
+    def turn_off(self):
+        self.pin.value = False
+        self.is_on = False
 
 class CanSatLoRa:
     def __init__(self) -> None:
