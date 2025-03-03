@@ -16,6 +16,9 @@ from ulora import LoRa, ModemConfig
 # Sensors
 import adafruit_bme680
 import adafruit_ccs811
+from DFRobot_Oxygen import DFRobot_Oxygen_IIC
+import adafruit_gps
+
 # fan
 from digitalio import DigitalInOut, Direction
 
@@ -43,6 +46,7 @@ sensors with IDs:
 16 - GPS - Altitude
 17 - GPS - Time
 18 - GPS - Date
+34 - GPS - connection
 
 19 - MPU9250 - Accelerometer X
 20 - MPU9250 - Accelerometer Y
@@ -54,6 +58,17 @@ sensors with IDs:
 26 - MPU9250 - Magnetometer Y
 27 - MPU9250 - Magnetometer Z
 28 - MPU9250 - Temperature
+
+29 - CCS811 - CO2
+30 - CCS811 - TVOC
+
+31 - Dust
+
+32 - O2
+
+33 - NO2
+
+34 - GPS - connection
 
 
 """
@@ -102,6 +117,24 @@ class BME680(Sensor):
             SensorData(2, t, str(self.bme680.relative_humidity)),
             SensorData(3, t, str(self.bme680.gas))
         ]
+        
+class GPSModul(Sensor):
+    def __init__(self) -> None:
+        self.i2c = busio.I2C(0, 1)
+        self.gps = adafruit_gps.GPS_GtopI2C(self.i2c, debug=False)
+    
+    def get_data(self) -> list[SensorData]:
+        self.gps.update()
+        t = time.ticks_ms()
+        if self.gps.has_fix:
+            return [
+                SensorData(14, t, str(self.gps.latitude)),
+                SensorData(15, t, str(self.gps.longitude)),
+            ]
+        else:     
+            return [
+                
+            ]
 
 class CCS811(Sensor):
     def __init__(self) -> None:
@@ -111,7 +144,21 @@ class CCS811(Sensor):
     def get_data(self) -> list[SensorData]:
         t = time.ticks_ms()
         return [
-            
+            SensorData(29, t, str(self.ccs811.eco2)),
+            SensorData(30, t, str(self.ccs811.tvoc)),
+        ]
+        
+class OxygenSensor(Sensor):
+    def __init__(self) -> None:#
+        self.collect_number = 10
+        self.iic_mode = 0x01
+        self.o2_sensor = DFRobot_Oxygen_IIC(self.iic_mode, 0x73)
+        
+    
+    def get_data(self) -> list[SensorData]:
+        t = time.ticks_ms()
+        return [
+            SensorData(32, t, str(self.o2_sensor.get_oxygen_data(self.collect_number)))
         ]
         
 class Mosfet:
