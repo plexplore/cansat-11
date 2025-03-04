@@ -26,7 +26,7 @@ Implementation Notes
   https://github.com/adafruit/circuitpython/releases
 
 """
-import time
+import adafruit_blinka.agnostic.time as time
 from micropython import const
 
 try:

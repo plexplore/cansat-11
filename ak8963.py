@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2023 Mika Tuupola
+# Copyright (c) 2018-2020 Mika Tuupola
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of  this software and associated documentation files (the "Software"), to
@@ -25,7 +25,7 @@
 MicroPython I2C driver for AK8963 magnetometer
 """
 
-__version__ = "0.4.0"
+__version__ = "0.3.0"
 
 # pylint: disable=import-error
 import ustruct
@@ -66,18 +66,15 @@ class AK8963:
     def __init__(
         self, i2c, address=0x0c,
         mode=MODE_CONTINOUS_MEASURE_1, output=OUTPUT_16_BIT,
-        offset=(0, 0, 0), scale=(1, 1, 1),
-        whoami_response = 0x48
+        offset=(0, 0, 0), scale=(1, 1, 1)
     ):
         self.i2c = i2c
         self.address = address
         self._offset = offset
         self._scale = scale
-        self._wh_res = whoami_response
 
-        if self._wh_res != self.whoami:
-            raise RuntimeError(f'''AK8963 not found in I2C bus.
-                               Try changing the whoami_response to {hex(self.whoami)}''')
+        if 0x48 != self.whoami:
+            raise RuntimeError("AK8963 not found in I2C bus.")
 
         # Sensitivity adjustement values
         self._register_char(_CNTL1, _MODE_FUSE_ROM_ACCESS)
@@ -160,6 +157,7 @@ class AK8963:
             minz = min(minz, reading[2])
             maxz = max(maxz, reading[2])
             count -= 1
+            print(count)
 
         # Hard iron correction
         offset_x = (maxx + minx) / 2

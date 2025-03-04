@@ -10,7 +10,7 @@
   @url https://github.com/DFRobot/DFRobot_Oxygen
 '''
 import time
-import smbus
+from pimoroni_circuitpython_adapter import not_SMBus as SMBus
 import os
            
 ## I2C address select
@@ -34,8 +34,8 @@ class DFRobot_Oxygen(object):
   __count    = 0
   __txbuf      = [0]
   __oxygendata = [0]*101
-  def __init__(self, bus):
-    self.i2cbus = smbus.SMBus(bus)
+  def __init__(self, i2c):
+    self.i2cbus = SMBus(I2C=i2c)
 
   def get_flash(self):
     rslt = self.read_reg(GET_KEY_REGISTER, 1)

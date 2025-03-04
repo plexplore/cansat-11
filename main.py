@@ -11,14 +11,16 @@ import json
 # CircuitPython 
 import board
 import busio
+from machine import I2C as machine_I2C
 
 from ulora import LoRa, ModemConfig
 # Sensors
 import adafruit_bme680
+import mpu9250
 import adafruit_ccs811
 from DFRobot_Oxygen import DFRobot_Oxygen_IIC
 import adafruit_gps
-
+from machine import ADC
 # fan
 from digitalio import DigitalInOut, Direction
 
@@ -117,11 +119,41 @@ class BME680(Sensor):
             SensorData(2, t, str(self.bme680.relative_humidity)),
             SensorData(3, t, str(self.bme680.gas))
         ]
+
+class NitrogenDioxideSensor(Sensor):
+    def __init__(self) -> None:
+        self.pin = ADC(0)
+    
+    def get_data(self) -> list[SensorData]:
+        t = time.ticks_ms()
+        return [
+            SensorData(33, t, str(self.pin.read_u16()))
+        ]
+        
+class DustSensor(Sensor):
+    def __init__(self) -> None:
+        self.pin = ADC(1)
+    
+    def get_data(self) -> list[SensorData]:
+        t = time.ticks_ms()
+        return [
+            SensorData(31, t, str(self.pin.read_u16()))
+        ]
+
+class MPU9250(Sensor):
+    def __init__(self) -> None:
+        self.i2c = machine_I2C(0, scl=Pin(21), sda=Pin(20))
+        self.mpu9250 = mpu9250.MPU9250(self.i2c)
+    def get_data(self) -> list[SensorData]:
+        t = time.ticks_ms()
+        return [
+            SensorData(19, t, str(self.mpu9250.acceleration)),
+        ]
         
 class GPSModul(Sensor):
     def __init__(self) -> None:
-        self.i2c = busio.I2C(0, 1)
-        self.gps = adafruit_gps.GPS_GtopI2C(self.i2c, debug=False)
+        self.i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
+        self.gps = adafruit_gps.GPS_GtopI2C(self.i2c, debug=True)
     
     def get_data(self) -> list[SensorData]:
         self.gps.update()
@@ -130,10 +162,11 @@ class GPSModul(Sensor):
             return [
                 SensorData(14, t, str(self.gps.latitude)),
                 SensorData(15, t, str(self.gps.longitude)),
+                SensorData(16, t, str(self.gps.altitude_m)),
             ]
         else:     
             return [
-                
+                SensorData(34, t, str(self.gps.has_fix))
             ]
 
 class CCS811(Sensor):
@@ -151,8 +184,8 @@ class CCS811(Sensor):
 class OxygenSensor(Sensor):
     def __init__(self) -> None:#
         self.collect_number = 10
-        self.iic_mode = 0x01
-        self.o2_sensor = DFRobot_Oxygen_IIC(self.iic_mode, 0x73)
+        self.i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
+        self.o2_sensor = DFRobot_Oxygen_IIC(self.i2c, 0x73)
         
     
     def get_data(self) -> list[SensorData]:
@@ -164,6 +197,20 @@ class OxygenSensor(Sensor):
 class Mosfet:
     def __init__(self) -> None:
         self.pin = DigitalInOut(board.GP18)
+        self.pin.direction = Direction.OUTPUT
+        self.is_on = False
+        
+    def turn_on(self):
+        self.pin.value = True
+        self.is_on = True
+        
+    def turn_off(self):
+        self.pin.value = False
+        self.is_on = False
+        
+class Buzzer:
+    def __init__(self) -> None:
+        self.pin = DigitalInOut(board.GP22)
         self.pin.direction = Direction.OUTPUT
         self.is_on = False
         
@@ -317,8 +364,8 @@ class CanSat:
 
     def setup(self):
         # Setup SD cards
-        #self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT)))
-        self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT)))
+        self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT)))
+        #self.sdcard_array.cards.append(SDCard("sd1", SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT)))
         self.sdcard_array.mount_all()
         
         try:
@@ -327,21 +374,25 @@ class CanSat:
             logger.error(f"Error initializing LoRa: {e}")
         
         # conf file
-        conf_exists = "conf.json" in uos.listdir("/d1")
-        if conf_exists:
-            t = time.ticks_ms()
-            with open("/d1/conf.json", "r") as f:
-                self.conf = json.load(f)
-            self.conf["runs"] += 1
-            with open("/d1/conf.json", "w") as f:
-                json.dump(self.conf, f)
-            logger.info(f"Loading config took {time.ticks_ms() - t} ms")
-            logger.info(f"Configuration file exists, runs: {self.conf},")
-        else:
-            with open("/d1/conf.json", "w") as f:
-                self.conf = DEFAULT_CONF
-                json.dump(self.conf, f)
-            logger.info("Created default configuration")
+        try:
+            conf_exists = "conf.json" in uos.listdir("/d1")
+            if conf_exists:
+                t = time.ticks_ms()
+                with open("/d1/conf.json", "r") as f:
+                    self.conf = json.load(f)
+                self.conf["runs"] += 1
+                with open("/d1/conf.json", "w") as f:
+                    json.dump(self.conf, f)
+                logger.info(f"Loading config took {time.ticks_ms() - t} ms")
+                logger.info(f"Configuration file exists, runs: {self.conf},")
+            else:
+                with open("/d1/conf.json", "w") as f:
+                    self.conf = DEFAULT_CONF
+                    json.dump(self.conf, f)
+                logger.info("Created default configuration")
+                
+        except Exception as e:
+            logger.error(f"Fatal Error loading configuration: {e}")
         
         # Setup LoRa
         
@@ -351,9 +402,63 @@ class CanSat:
             self.sensors.append(bme680)
             del bme680
         except Exception as e:
-            logger.error(f"Error initializing BME680: {e}")
-                
-        #self.sensors.append(self.pico)
+            logger.error(f"Error initializing BME680{e}")
+            
+        try:
+            oxygen = OxygenSensor()
+            self.sensors.append(oxygen)
+            del oxygen
+        except Exception as e:
+            logger.error(f"Error initializing Oxygen: {e}")
+        
+        """try:
+            self.csc811 = CCS811()
+            self.sensors.append(self.csc811)
+            #del csc811
+        except Exception as e:
+            logger.error(f"Error initializing CCS811: {e}")"""
+            
+            
+        try:
+            no2 = NitrogenDioxideSensor()
+            self.sensors.append(no2)
+            del no2
+        except Exception as e:
+            logger.error(f"Error initializing NO2: {e}")
+        
+        try:
+            dust = DustSensor()
+            self.sensors.append(dust)
+            del dust
+        except Exception as e:
+            logger.error(f"Error initializing Dust: {e}")
+            
+        """try:
+            self.fan = Mosfet()
+            
+        except Exception as e:
+            logger.error(f"Error initializing Fan: {e}")"""
+            
+        """try:
+            self.mpu = MPU9250()
+            self.sensors.append(self.mpu)
+            #del mpu
+        except Exception as e:
+            logger.error(f"Error initializing MPU9250: {e}")"""
+        try:
+            gps = GPSModul()
+            self.sensors.append(gps)
+            del gps
+        
+        except Exception as e:
+            logger.error(f"Error initializing GPS: {e}")
+            
+        try:
+            self.buzzer = Buzzer()
+            self.sensors.append(self.buzzer)
+        except Exception as e:
+            logger.error(f"Error initializing Buzzer: {e}")
+        self.sensors.append(self.pico)
         
         logger.info(self.sensors)
         
@@ -363,12 +468,24 @@ class CanSat:
         self.io_thread.start()
         
         
+        self.buzzer.turn_on()
+        time.sleep(1)
+        self.buzzer.turn_off()
+        
         
     def run(self):
         self.setup()
         logger.info("CanSat started")
         
         run_intervall = 1
+        
+        
+        
+        """print(self.bme680.get_data())
+        print(self.oxygen.get_data())
+        print(self.gps.get_data())
+        print("hi")"""
+        #print(self.mpu.get_data())
         
         while True:
             t = time.ticks_ms()
@@ -398,9 +515,15 @@ class CanSat:
         #    time.sleep(random.random()/100)
         
         
-        time.sleep(1)
-        self.onboard_led.on()
-        time.sleep(4)
+        self.buzzer.turn_on()
+        time.sleep(0.5)
+        self.buzzer.turn_off()
+        time.sleep(0.5)
+        self.buzzer.turn_on()
+        time.sleep(0.5)
+        self.buzzer.turn_off()
+        
+        
         
 cansat = CanSat()
 cansat.run()

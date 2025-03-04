@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2023 Mika Tuupola
+# Copyright (c) 2018-2020 Mika Tuupola
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of  this software and associated documentation files (the "Software"), to
@@ -24,7 +24,7 @@
 MicroPython I2C driver for MPU6500 6-axis motion tracking device
 """
 
-__version__ = "0.4.0"
+__version__ = "0.3.0"
 
 # pylint: disable=import-error
 import ustruct
@@ -51,8 +51,6 @@ _GYRO_YOUT_L = const(0x46)
 _GYRO_ZOUT_H = const(0x47)
 _GYRO_ZOUT_L = const(0x48)
 _WHO_AM_I = const(0x75)
-
-_PWR_MGMT_1 = const(0x6B)
 
 #_ACCEL_FS_MASK = const(0b00011000)
 ACCEL_FS_SEL_2G = const(0b00000000)
@@ -95,15 +93,9 @@ class MPU6500:
         self.i2c = i2c
         self.address = address
 
-        # 0x70 = standalone MPU6500, 0x71 = MPU6250 SIP, 0x90 = MPU6700
-        if self.whoami not in [0x71, 0x70, 0x90]:
+        # 0x70 = standalone MPU6500, 0x71 = MPU6250 SIP
+        if self.whoami not in [0x71, 0x70]:
             raise RuntimeError("MPU6500 not found in I2C bus.")
-
-        # Reset, disable sleep mode
-        self._register_char(_PWR_MGMT_1, 0x80)
-        utime.sleep_ms(100)
-        self._register_char(_PWR_MGMT_1, 0x00)
-        utime.sleep_ms(100)
 
         self._accel_so = self._accel_fs(accel_fs)
         self._gyro_so = self._gyro_fs(gyro_fs)

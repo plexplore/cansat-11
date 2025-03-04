@@ -1,75 +1,100 @@
-import time
-import struct
-import machine
+# Copyright (c) 2018-2020 Mika Tuupola
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of  this software and associated documentation files (the "Software"), to
+# deal in  the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copied of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
-# MPU-9250 I2C address and registers
-MPU9250_ADDR = 0x68  # Default I2C address
-MAGNETOMETER_ADDR = 0x0C  # Magnetometer address (used in I2C read/write)
+# https://github.com/tuupola/micropython-mpu9250
 
-# MPU-9250 register addresses
-PWR_MGMT_1 = 0x6B
-ACCEL_XOUT_H = 0x3B
-GYRO_XOUT_H = 0x43
-ACCEL_CONFIG = 0x1C
-GYRO_CONFIG = 0x1B
-MAGNETOMETER_CTRL = 0x0A
-MAGNETOMETER_DATA = 0x03
+"""
+MicroPython I2C driver for MPU9250 9-axis motion tracking device
+"""
 
-# Scale factors for converting raw data
-ACCEL_SCALE = 16384  # for ±2g accelerometer sensitivity
-GYRO_SCALE = 131  # for ±250°/s gyroscope sensitivity
-MAG_SCALE = 0.15  # for magnetometer (uT per LSB, scaled after calibration)
+# pylint: disable=import-error
+from micropython import const
+from mpu6500 import MPU6500
+from ak8963 import AK8963
+# pylint: enable=import-error
+
+__version__ = "0.3.0"
+
+# Used for enabling and disabling the I2C bypass access
+_INT_PIN_CFG = const(0x37)
+_I2C_BYPASS_MASK = const(0b00000010)
+_I2C_BYPASS_EN = const(0b00000010)
+_I2C_BYPASS_DIS = const(0b00000000)
 
 class MPU9250:
-    def __init__(self, i2c, address=MPU9250_ADDR):
-        """Initialize the MPU9250 sensor."""
-        self.i2c = i2c
-        self.address = address
-        self.initialize()
+    """Class which provides interface to MPU9250 9-axis motion tracking device."""
+    def __init__(self, i2c, mpu6500 = None, ak8963 = None):
+        if mpu6500 is None:
+            self.mpu6500 = MPU6500(i2c)
+        else:
+            self.mpu6500 = mpu6500
 
-    def initialize(self):
-        """Wake up the MPU9250 and configure it."""
-        self._write_byte(PWR_MGMT_1, 0x00)  # Wake up the sensor
-        time.sleep(0.1)
+        # Enable I2C bypass to access AK8963 directly.
+        char = self.mpu6500._register_char(_INT_PIN_CFG)
+        char &= ~_I2C_BYPASS_MASK # clear I2C bits
+        char |= _I2C_BYPASS_EN
+        self.mpu6500._register_char(_INT_PIN_CFG, char)
 
-        # Configure accelerometer: ±2g range (default)
-        self._write_byte(ACCEL_CONFIG, 0x00)
+        if ak8963 is None:
+            self.ak8963 = AK8963(i2c)
+        else:
+            self.ak8963 = ak8963
 
-        # Configure gyroscope: ±250°/s range (default)
-        self._write_byte(GYRO_CONFIG, 0x00)
+    @property
+    def acceleration(self):
+        """
+        Acceleration measured by the sensor. By default will return a
+        3-tuple of X, Y, Z axis values in m/s^2 as floats. To get values in g
+        pass `accel_fs=SF_G` parameter to the MPU6500 constructor.
+        """
+        return self.mpu6500.acceleration
 
-        # Configure magnetometer (continuous measurement mode)
-        self._write_byte(MAGNETOMETER_CTRL, 0x01)
+    @property
+    def gyro(self):
+        """
+        Gyro measured by the sensor. By default will return a 3-tuple of
+        X, Y, Z axis values in rad/s as floats. To get values in deg/s pass
+        `gyro_sf=SF_DEG_S` parameter to the MPU6500 constructor.
+        """
+        return self.mpu6500.gyro
 
-    def _write_byte(self, reg, value):
-        """Write a single byte to a specific register."""
-        self.i2c.writeto_mem(self.address, reg, bytes([value]))
+    @property
+    def temperature(self):
+        """
+        Die temperature in celcius as a float.
+        """
+        return self.mpu6500.temperature
 
-    def _read_bytes(self, reg, length):
-        """Read multiple bytes from a specific register."""
-        return self.i2c.readfrom_mem(self.address, reg, length)
+    @property
+    def magnetic(self):
+        """
+        X, Y, Z axis micro-Tesla (uT) as floats.
+        """
+        return self.ak8963.magnetic
 
-    def read_accelerometer(self):
-        """Read accelerometer data (X, Y, Z)."""
-        data = self._read_bytes(ACCEL_XOUT_H, 6)
-        ax, ay, az = struct.unpack('>hhh', bytes(data))
-        return ax / ACCEL_SCALE, ay / ACCEL_SCALE, az / ACCEL_SCALE  # Convert to g
+    @property
+    def whoami(self):
+        return self.mpu6500.whoami
 
-    def read_gyroscope(self):
-        """Read gyroscope data (X, Y, Z)."""
-        data = self._read_bytes(GYRO_XOUT_H, 6)
-        gx, gy, gz = struct.unpack('>hhh', bytes(data))
-        return gx / GYRO_SCALE, gy / GYRO_SCALE, gz / GYRO_SCALE  # Convert to °/s
+    def __enter__(self):
+        return self
 
-    def read_magnetometer(self):
-        """Read magnetometer data (X, Y, Z)."""
-        data = self._read_bytes(MAGNETOMETER_DATA, 6)
-        mx, my, mz = struct.unpack('>hhh', bytes(data))
-        return mx * MAG_SCALE, my * MAG_SCALE, mz * MAG_SCALE  # Convert to µT
-
-    def read_all(self):
-        """Read all sensor values (accelerometer, gyroscope, magnetometer)."""
-        accel = self.read_accelerometer()
-        gyro = self.read_gyroscope()
-        mag = self.read_magnetometer()
-        return accel, gyro, mag
+    def __exit__(self, exception_type, exception_value, traceback):
+        pass
