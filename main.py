@@ -103,7 +103,7 @@ class Sensor:
     def __init__(self) -> None:
         pass
     
-    def get_data(self) -> list[SensorData]:
+    def get_data(self, t:int) -> list[SensorData]:
         return []
     
 class BME680(Sensor):
@@ -111,8 +111,7 @@ class BME680(Sensor):
         self.i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
         self.bme680 = adafruit_bme680.Adafruit_BME680_I2C(self.i2c)
     
-    def get_data(self) -> list[SensorData]:
-        t = time.ticks_ms()
+    def get_data(self, t:int) -> list[SensorData]:
         return [
             SensorData(0, t, str(self.bme680.temperature)),
             SensorData(1, t, str(self.bme680.pressure)),
@@ -124,8 +123,7 @@ class NitrogenDioxideSensor(Sensor):
     def __init__(self) -> None:
         self.pin = ADC(0)
     
-    def get_data(self) -> list[SensorData]:
-        t = time.ticks_ms()
+    def get_data(self, t:int) -> list[SensorData]:
         return [
             SensorData(33, t, str(self.pin.read_u16()))
         ]
@@ -134,8 +132,7 @@ class DustSensor(Sensor):
     def __init__(self) -> None:
         self.pin = ADC(1)
     
-    def get_data(self) -> list[SensorData]:
-        t = time.ticks_ms()
+    def get_data(self, t:int) -> list[SensorData]:
         return [
             SensorData(31, t, str(self.pin.read_u16()))
         ]
@@ -144,8 +141,7 @@ class MPU9250(Sensor):
     def __init__(self) -> None:
         self.i2c = machine_I2C(0, scl=Pin(21), sda=Pin(20))
         self.mpu9250 = mpu9250.MPU9250(self.i2c)
-    def get_data(self) -> list[SensorData]:
-        t = time.ticks_ms()
+    def get_data(self,t :int) -> list[SensorData]:
         return [
             SensorData(19, t, str(self.mpu9250.acceleration)),
         ]
@@ -155,9 +151,8 @@ class GPSModul(Sensor):
         self.i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
         self.gps = adafruit_gps.GPS_GtopI2C(self.i2c, debug=True)
     
-    def get_data(self) -> list[SensorData]:
+    def get_data(self, t:int) -> list[SensorData]:
         self.gps.update()
-        t = time.ticks_ms()
         if self.gps.has_fix:
             return [
                 SensorData(14, t, str(self.gps.latitude)),
@@ -174,7 +169,7 @@ class CCS811(Sensor):
         self.i2c = busio.I2C(scl=board.GP21, sda=board.GP20)
         self.ccs811 = adafruit_ccs811.CCS811(self.i2c)
         
-    def get_data(self) -> list[SensorData]:
+    def get_data(self, t:int) -> list[SensorData]:
         t = time.ticks_ms()
         return [
             SensorData(29, t, str(self.ccs811.eco2)),
@@ -188,8 +183,7 @@ class OxygenSensor(Sensor):
         self.o2_sensor = DFRobot_Oxygen_IIC(self.i2c, 0x73)
         
     
-    def get_data(self) -> list[SensorData]:
-        t = time.ticks_ms()
+    def get_data(self, t:int) -> list[SensorData]:
         return [
             SensorData(32, t, str(self.o2_sensor.get_oxygen_data(self.collect_number)))
         ]
@@ -250,10 +244,9 @@ class Pico(Sensor):
         u = (3.3/65536) * adc
         return round(27 - (u - 0.706)/0.001721, 1)
 
-    def get_data(self) -> list[SensorData]:
+    def get_data(self, t:int) -> list[SensorData]:
         ram_free, ram_allocated = self.ram_stats()
         sysname, nodename, release, version, machine = self.device_info()
-        t = time.ticks_ms()
         return [
             SensorData(4, t, str(ram_free)),
             SensorData(5, t, str(ram_allocated)),
@@ -492,7 +485,7 @@ class CanSat:
             cd = []
             for s in self.sensors:
                 try:
-                    cd.extend(s.get_data())
+                    cd.extend(s.get_data(t))
                 except Exception as e:
                     logger.error(f"Error getting data from {s}: {e}")
             
