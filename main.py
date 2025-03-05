@@ -79,13 +79,13 @@ DEFAULT_CONF = {"runs":0}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CanSat")
 
-RFM95_RST = 27
+RFM95_RST = 4
 RFM95_SPIBUS = (0, 2, 3, 0)
 RFM95_CS = 1
-RFM95_INT = 28
+RFM95_INT = 6
 RF95_FREQ = 868.0
 RF95_POW = 20
-CLIENT_ADDRESS = 1
+CLIENT_ADDRESS = 42
 SERVER_ADDRESS = 2
 
 SENSOR_DATA = []
@@ -334,7 +334,10 @@ class IOThread(Thread):
             if len(self.local_sensor_data) != 0:
                 fcsv = "\n".join([x.csv() for x in self.local_sensor_data]) + "\n"
                 self.cards.write_all(f"data-{r}.csv", fcsv) # Write to cards
-                self.lora.send(fcsv) # Send to base station
+                fcsv2 = "\n".join([x.csv() for x in self.local_sensor_data[:1]]) + "\n"
+                self.lora.send(fcsv2) # Send to base station
+                
+                
             
             i += len(self.local_sensor_data)
             dt = (time.ticks_ms() - t)
@@ -448,22 +451,24 @@ class CanSat:
             
         try:
             self.buzzer = Buzzer()
-            self.sensors.append(self.buzzer)
         except Exception as e:
             logger.error(f"Error initializing Buzzer: {e}")
-        self.sensors.append(self.pico)
+        #self.sensors.append(self.pico)
         
         logger.info(self.sensors)
-        
+        errorm = False
         # Threading
         self.thread_lock = _thread.allocate_lock()
-        self.io_thread = IOThread(self.thread_lock, self.conf, self.sdcard_array, self.lora, self.sensor_data)
-        self.io_thread.start()
-        
+        try:
+            self.io_thread = IOThread(self.thread_lock, self.conf, self.sdcard_array, self.lora, self.sensor_data)
+            self.io_thread.start()
+        except:
+            errorm = True
         
         self.buzzer.turn_on()
         time.sleep(1)
-        self.buzzer.turn_off()
+        if not errorm:
+            self.buzzer.turn_off()
         
         
     def run(self):

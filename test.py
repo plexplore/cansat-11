@@ -28,7 +28,7 @@ print("Temperature: %0.1f C" % bme680.temperature)
 print("Gas: %d ohm" % bme680.gas)
 print("Humidity: %0.1f %%" % bme680.humidity)
 print("Pressure: %0.3f hPa" % bme680.pressure)"""
-
+"""
 import board
 import busio
 
@@ -61,17 +61,17 @@ class MPU9250():
         ]
 
 mpu = MPU9250()
-print(mpu.get_data())
+print(mpu.get_data())"""
 
 #print("Temperature: %0.1f C" % bme680.temperature)
-"""
+
 RFM95_RST = 4
 RFM95_SPIBUS = (0, 2, 3, 0)
 RFM95_CS = 1
 RFM95_INT = 6
 RF95_FREQ = 868.0
 RF95_POW = 20
-CLIENT_ADDRESS = 1
+CLIENT_ADDRESS = 42
 SERVER_ADDRESS = 2
 
 lora = LoRa(
@@ -83,14 +83,14 @@ lora = LoRa(
 )
 
 t = ticks_ms()
-lora.send_to_wait("Hello World!", SERVER_ADDRESS)
+lora.send_to_wait("Hello !Hello World!", SERVER_ADDRESS)
 
 print("Time to send: ", ticks_ms() - t)
 print("Sent Hello World!")
 
 sleep(1)
-"""
-""""
+
+
 from machine import SPI, Pin
 import sdcard
 import uos
@@ -98,8 +98,8 @@ import json
 import time
 
 
-#sd = sdcard.SDCard(SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT))
-sd = sdcard.SDCard(SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT))
+sd = sdcard.SDCard(SPI(1, sck=Pin(10), mosi=Pin(11), miso=Pin(8)), Pin(9, Pin.OUT))
+#sd = sdcard.SDCard(SPI(1, sck=Pin(14), mosi=Pin(15), miso=Pin(12)), Pin(13, Pin.OUT))
 vfs=uos.VfsFat(sd)
 #vfs2=uos.VfsFat(sd2)
 uos.mount(vfs, "sd1")
@@ -120,4 +120,4 @@ with open("/d1/test.txt", "r") as f:
 print(conf)
 #print(conf2)
 print(uos.listdir("/d1"))
-#print(uos.listdir("/d2"))"""
+#print(uos.listdir("/d2"))
